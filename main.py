@@ -53,3 +53,61 @@ def save_user_events(user_id, events_list):
     events = load_events()
     events[str(user_id)] = events_list
     save_events(events)
+
+
+def get_next_event_id(user_id):
+    events = get_user_events(user_id)
+    if not events:
+        return 1
+    return max(event.get('id', 0) for event in events) + 1
+
+
+def parse_date(date_str):
+    try:
+        date_str = date_str.strip().replace('/', '.')
+
+        if date_str.count('.') == 1:
+            day, month = map(int, date_str.split('.'))
+            today = date.today()
+            event_date = date(today.year, month, day)
+            if event_date < today:
+                event_date = date(today.year + 1, month, day)
+
+        elif date_str.count('.') == 2:
+            day, month, year = map(int, date_str.split('.'))
+            if year < 100:
+                year += 2000
+            event_date = date(year, month, day)
+        else:
+            return None
+
+        return event_date
+
+    except:
+        return None
+
+
+def parse_time(time_str):
+    try:
+        time_str = time_str.strip().lower()
+
+        if time_str in ['весь день', 'целый день', 'день']:
+            return "00:00"
+
+        time_str = time_str.replace(':', '').replace('.', '')
+
+        if len(time_str) == 4 and time_str.isdigit():
+            hours = int(time_str[:2])
+            minutes = int(time_str[2:])
+            if 0 <= hours < 24 and 0 <= minutes < 60:
+                return f"{hours:02d}:{minutes:02d}"
+
+        if ':' in time_str:
+            hours, minutes = map(int, time_str.split(':'))
+            if 0 <= hours < 24 and 0 <= minutes < 60:
+                return f"{hours:02d}:{minutes:02d}"
+
+    except:
+        pass
+
+    return None
