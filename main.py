@@ -43,3 +43,13 @@ def save_events(events):
             json.dump(events, f, ensure_ascii=False, indent=2)
     except:
         pass
+
+
+def get_user_events(user_id):
+    events = load_events()
+    return events.get(str(user_id), [])
+
+def save_user_events(user_id, events_list):
+    events = load_events()
+    events[str(user_id)] = events_list
+    save_events(events)
