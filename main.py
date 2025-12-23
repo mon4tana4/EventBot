@@ -26,3 +26,20 @@ class EventStates(StatesGroup):
     waiting_description = State()
     waiting_date = State()
     waiting_time = State()
+
+
+def load_events():
+    try:
+        if os.path.exists(EVENTS_FILE):
+            with open(EVENTS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except:
+        return {}
+    return {}
+
+def save_events(events):
+    try:
+        with open(EVENTS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(events, f, ensure_ascii=False, indent=2)
+    except:
+        pass
