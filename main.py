@@ -111,3 +111,33 @@ def parse_time(time_str):
         pass
 
     return None
+
+
+@dp.message(Command("start"))
+async def start_cmd(message: types.Message):
+    keyboard = [
+        [types.KeyboardButton(text="📅 Новое событие")],
+        [types.KeyboardButton(text="📋 Мои события")],
+        [types.KeyboardButton(text="🗑 Удалить")],
+        [types.KeyboardButton(text="ℹ️ Помощь")]
+    ]
+
+    await message.answer(
+        "👋 Привет! Я бот для планирования событий.\n\n"
+        "Используйте кнопки ниже:",
+        reply_markup=types.ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+    )
+
+
+@dp.message(Command("help"))
+@dp.message(F.text == "ℹ️ Помощь")
+async def help_cmd(message: types.Message):
+    await message.answer(
+        "📚 Основные команды:\n\n"
+        "/new - Новое событие\n"
+        "/list - Все события\n"
+        "/today - События сегодня\n"
+        "/delete - Удалить событие\n"
+        "/help - Эта справка"
+    )
+
