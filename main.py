@@ -141,3 +141,20 @@ async def help_cmd(message: types.Message):
         "/help - Эта справка"
     )
 
+
+@dp.message(Command("new"))
+@dp.message(F.text == "📅 Новое событие")
+async def new_event_start(message: types.Message, state: FSMContext):
+    await message.answer("Введите название события:", reply_markup=types.ReplyKeyboardRemove())
+    await state.set_state(EventStates.waiting_title)
+
+
+@dp.message(EventStates.waiting_title)
+async def process_title(message: types.Message, state: FSMContext):
+    if len(message.text) < 2:
+        await message.answer("❌ Название слишком короткое. Введите название:")
+        return
+
+    await state.update_data(title=message.text)
+    await message.answer("Введите описание (или '-' если не нужно):")
+    await state.set_state(EventStates.waiting_description)
