@@ -2,30 +2,21 @@
 
 import os
 import json
-import asyncio
+import telebot
+from telebot import types
 from datetime import datetime, date, timedelta
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.storage.memory import MemoryStorage
+import re
 
 BOT_TOKEN = "8320022661:AAHEf6qV60tVXSJ3fDi7KhpviMU2cUM3ihM"
+
+bot = telebot.TeleBot(BOT_TOKEN)
 
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 EVENTS_FILE = os.path.join(DATA_DIR, "events.json")
 
-storage = MemoryStorage()
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(storage=storage)
-
-
-class EventStates(StatesGroup):
-    waiting_title = State()
-    waiting_description = State()
-    waiting_date = State()
-    waiting_time = State()
+# Хранилище состояний пользователей
+user_states = {}
 
 
 def load_events():
@@ -115,89 +106,116 @@ def parse_time(time_str):
     return None
 
 
-@dp.message(Command("start"))
-async def start_cmd(message: types.Message):
-    keyboard = [
-        [types.KeyboardButton(text="📅 Новое событие")],
-        [types.KeyboardButton(text="📋 Мои события")],
-        [types.KeyboardButton(text="🗑 Удалить")],
-        [types.KeyboardButton(text="ℹ️ Помощь")]
-    ]
+def create_main_keyboard():
+    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    keyboard.row("📅 Новое событие", "📋 Мои события")
+    keyboard.row("🗑 Удалить", "📊 Сегодня")
+    keyboard.row("ℹ️ Помощь")
+    return keyboard
 
-    await message.answer(
+
+@bot.message_handler(commands=['start'])
+def start_command(message):
+    bot.send_message(
+        message.chat.id,
         "👋 Привет! Я бот для планирования событий.\n\n"
         "Используйте кнопки ниже:",
-        reply_markup=types.ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+        reply_markup=create_main_keyboard()
     )
 
 
-@dp.message(Command("help"))
-@dp.message(F.text == "ℹ️ Помощь")
-async def help_cmd(message: types.Message):
-    await message.answer(
+@bot.message_handler(commands=['help'])
+@bot.message_handler(func=lambda message: message.text == 'ℹ️ Помощь')
+def help_command(message):
+    help_text = (
         "📚 Основные команды:\n\n"
         "/new - Новое событие\n"
         "/list - Все события\n"
         "/today - События сегодня\n"
         "/delete - Удалить событие\n"
-        "/help - Эта справка"
+        "/help - Эта справка\n\n"
+        "Или используйте кнопки ниже 👇"
     )
+    bot.send_message(message.chat.id, help_text)
 
 
-@dp.message(Command("new"))
-@dp.message(F.text == "📅 Новое событие")
-async def new_event_start(message: types.Message, state: FSMContext):
-    await message.answer("Введите название события:", reply_markup=types.ReplyKeyboardRemove())
-    await state.set_state(EventStates.waiting_title)
+@bot.message_handler(commands=['new'])
+@bot.message_handler(func=lambda message: message.text == '📅 Новое событие')
+def new_event_start(message):
+    user_id = str(message.chat.id)
+    user_states[user_id] = {'step': 'waiting_title'}
+
+    msg = bot.send_message(
+        message.chat.id,
+        "Введите название события:",
+        reply_markup=types.ReplyKeyboardRemove()
+    )
+    bot.register_next_step_handler(msg, process_title)
 
 
-@dp.message(EventStates.waiting_title)
-async def process_title(message: types.Message, state: FSMContext):
+def process_title(message):
+    user_id = str(message.chat.id)
+
     if len(message.text) < 2:
-        await message.answer("❌ Название слишком короткое. Введите название:")
+        msg = bot.send_message(message.chat.id, "❌ Название слишком короткое. Введите название:")
+        bot.register_next_step_handler(msg, process_title)
         return
 
-    await state.update_data(title=message.text)
-    await message.answer("Введите описание (или '-' если не нужно):")
-    await state.set_state(EventStates.waiting_description)
+    user_states[user_id] = {
+        'step': 'waiting_description',
+        'title': message.text
+    }
+
+    msg = bot.send_message(message.chat.id, "Введите описание (или '-' если не нужно):")
+    bot.register_next_step_handler(msg, process_description)
 
 
-@dp.message(EventStates.waiting_description)
-async def process_description(message: types.Message, state: FSMContext):
+def process_description(message):
+    user_id = str(message.chat.id)
+
     description = message.text if message.text != '-' else ""
-    await state.update_data(description=description)
-    await message.answer("Введите дату (ДД.ММ.ГГГГ или ДД.ММ):")
-    await state.set_state(EventStates.waiting_date)
+    user_states[user_id]['step'] = 'waiting_date'
+    user_states[user_id]['description'] = description
+
+    msg = bot.send_message(message.chat.id, "Введите дату (ДД.ММ.ГГГГ или ДД.ММ):")
+    bot.register_next_step_handler(msg, process_date_step)
 
 
-@dp.message(EventStates.waiting_date)
-async def process_date(message: types.Message, state: FSMContext):
+def process_date_step(message):
+    user_id = str(message.chat.id)
+
     parsed_date = parse_date(message.text)
 
     if not parsed_date:
-        await message.answer("❌ Неверный формат даты. Введите ДД.ММ.ГГГГ или ДД.ММ:")
+        msg = bot.send_message(message.chat.id, "❌ Неверный формат даты. Введите ДД.ММ.ГГГГ или ДД.ММ:")
+        bot.register_next_step_handler(msg, process_date_step)
         return
 
     today = date.today()
     if parsed_date < today:
-        await message.answer("❌ Дата не может быть в прошлом. Введите будущую дату:")
+        msg = bot.send_message(message.chat.id, "❌ Дата не может быть в прошлом. Введите будущую дату:")
+        bot.register_next_step_handler(msg, process_date_step)
         return
 
-    await state.update_data(event_date=parsed_date.isoformat())
-    await message.answer("Введите время (ЧЧ:ММ или 'весь день'):")
-    await state.set_state(EventStates.waiting_time)
+    user_states[user_id]['step'] = 'waiting_time'
+    user_states[user_id]['event_date'] = parsed_date.isoformat()
+
+    msg = bot.send_message(message.chat.id, "Введите время (ЧЧ:ММ или 'весь день'):")
+    bot.register_next_step_handler(msg, process_time_step)
 
 
-@dp.message(EventStates.waiting_time)
-async def process_time(message: types.Message, state: FSMContext):
+def process_time_step(message):
+    user_id = str(message.chat.id)
+
     parsed_time = parse_time(message.text)
 
     if not parsed_time:
-        await message.answer("❌ Неверный формат времени. Введите ЧЧ:ММ или 'весь день':")
+        msg = bot.send_message(message.chat.id, "❌ Неверный формат времени. Введите ЧЧ:ММ или 'весь день':")
+        bot.register_next_step_handler(msg, process_time_step)
         return
 
-    data = await state.get_data()
-    user_id = str(message.from_user.id)
+    data = user_states.get(user_id, {})
+
     events = get_user_events(user_id)
     event_id = get_next_event_id(user_id)
 
@@ -217,27 +235,31 @@ async def process_time(message: types.Message, state: FSMContext):
     display_date = datetime.fromisoformat(data['event_date']).strftime('%d.%m.%Y')
     time_display = "весь день" if parsed_time == "00:00" else parsed_time
 
-    await message.answer(
+    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    keyboard.row("📋 Мои события")
+
+    bot.send_message(
+        message.chat.id,
         f"✅ Событие создано!\n\n"
         f"📅 {data['title']}\n"
         f"📝 {data.get('description', 'нет описания')}\n"
         f"⏰ {display_date} ({time_display})\n"
         f"🆔 ID: {event_id}",
-        reply_markup=types.ReplyKeyboardMarkup(keyboard=[[types.KeyboardButton(text="📋 Мои события")]],
-                                               resize_keyboard=True)
+        reply_markup=keyboard
     )
 
-    await state.clear()
+    if user_id in user_states:
+        del user_states[user_id]
 
 
-@dp.message(Command("list"))
-@dp.message(F.text == "📋 Мои события")
-async def list_cmd(message: types.Message):
-    user_id = str(message.from_user.id)
+@bot.message_handler(commands=['list'])
+@bot.message_handler(func=lambda message: message.text == '📋 Мои события')
+def list_events(message):
+    user_id = str(message.chat.id)
     events = get_user_events(user_id)
 
     if not events:
-        await message.answer("📭 Нет событий.")
+        bot.send_message(message.chat.id, "📭 Нет событий.")
         return
 
     events.sort(key=lambda x: x.get('date', ''))
@@ -258,48 +280,49 @@ async def list_cmd(message: types.Message):
     if len(events) > 10:
         text += f"\n... и еще {len(events) - 10}"
 
-    await message.answer(text)
+    bot.send_message(message.chat.id, text)
 
 
-@dp.message(Command("today"))
-async def today_cmd(message: types.Message):
-    user_id = str(message.from_user.id)
+@bot.message_handler(commands=['today'])
+@bot.message_handler(func=lambda message: message.text == '📊 Сегодня')
+def today_events(message):
+    user_id = str(message.chat.id)
     events = get_user_events(user_id)
 
     if not events:
-        await message.answer("📭 Нет событий на сегодня.")
+        bot.send_message(message.chat.id, "📭 Нет событий на сегодня.")
         return
 
     today = datetime.now().date()
-    today_events = []
+    today_events_list = []
 
     for event in events:
         try:
             event_date = datetime.fromisoformat(event['date']).date()
             if event_date == today:
-                today_events.append(event)
+                today_events_list.append(event)
         except:
             continue
 
-    if today_events:
+    if today_events_list:
         text = f"📅 Сегодня ({today.strftime('%d.%m.%Y')}):\n\n"
-        for event in today_events:
+        for event in today_events_list:
             time_str = event.get('time', '00:00')
             text += f"• {event['title']} - {time_str if time_str != '00:00' else 'весь день'}\n"
     else:
         text = f"📅 На сегодня ({today.strftime('%d.%m.%Y')}) событий нет."
 
-    await message.answer(text)
+    bot.send_message(message.chat.id, text)
 
 
-@dp.message(Command("delete"))
-@dp.message(F.text == "🗑 Удалить")
-async def delete_cmd(message: types.Message):
-    user_id = str(message.from_user.id)
+@bot.message_handler(commands=['delete'])
+@bot.message_handler(func=lambda message: message.text == '🗑 Удалить')
+def delete_event(message):
+    user_id = str(message.chat.id)
     events = get_user_events(user_id)
 
     if not events:
-        await message.answer("Нет событий для удаления.")
+        bot.send_message(message.chat.id, "Нет событий для удаления.")
         return
 
     text = "🗑 Введите ID события для удаления:\n\n"
@@ -313,32 +336,47 @@ async def delete_cmd(message: types.Message):
 
         text += f"🆔 {event['id']} - {event['title'][:20]}... ({date_str})\n"
 
-    await message.answer(text)
+    msg = bot.send_message(message.chat.id, text)
+    bot.register_next_step_handler(msg, process_delete)
 
 
-@dp.message(F.text.regexp(r'^\d+$'))
-async def delete_by_id(message: types.Message):
+def process_delete(message):
+    user_id = str(message.chat.id)
+
     try:
         event_id = int(message.text)
-        user_id = str(message.from_user.id)
         events = get_user_events(user_id)
 
         for i, event in enumerate(events):
             if event.get('id') == event_id:
                 del events[i]
                 save_user_events(user_id, events)
-                await message.answer(f"✅ Событие #{event_id} удалено!")
+                bot.send_message(message.chat.id, f"✅ Событие #{event_id} удалено!")
                 return
 
-        await message.answer(f"❌ Событие #{event_id} не найдено.")
+        bot.send_message(message.chat.id, f"❌ Событие #{event_id} не найдено.")
 
     except ValueError:
-        await message.answer("❌ Введите числовой ID.")
+        bot.send_message(message.chat.id, "❌ Введите числовой ID.")
 
 
-@dp.message(F.text)
-async def quick_create(message: types.Message):
-    import re
+@bot.message_handler(func=lambda message: True)
+def handle_all_messages(message):
+    user_id = str(message.chat.id)
+
+    if user_id in user_states:
+        state = user_states[user_id].get('step')
+
+        if state == 'waiting_title':
+            process_title(message)
+        elif state == 'waiting_description':
+            process_description(message)
+        elif state == 'waiting_date':
+            process_date_step(message)
+        elif state == 'waiting_time':
+            process_time_step(message)
+        return
+
     pattern = r'^(\d{1,2})\.(\d{1,2})\s+(.+)'
     match = re.match(pattern, message.text)
 
@@ -356,7 +394,6 @@ async def quick_create(message: types.Message):
                 title = parts[0]
                 description = parts[1] if len(parts) > 1 else ""
 
-                user_id = str(message.from_user.id)
                 events = get_user_events(user_id)
                 event_id = get_next_event_id(user_id)
 
@@ -371,7 +408,8 @@ async def quick_create(message: types.Message):
 
                 save_user_events(user_id, events)
 
-                await message.answer(
+                bot.send_message(
+                    message.chat.id,
                     f"✅ Событие создано!\n"
                     f"📅 {title}\n"
                     f"🆔 ID: {event_id}"
@@ -380,10 +418,6 @@ async def quick_create(message: types.Message):
             pass
 
 
-async def main():
-    print("🚀 Бот запущен...")
-    await dp.start_polling(bot)
-
-
 if __name__ == "__main__":
-    asyncio.run(main())
+    print("🚀 Бот запущен...")
+    bot.polling(none_stop=True)
