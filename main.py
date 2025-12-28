@@ -235,9 +235,7 @@ def process_time_step(message):
     display_date = datetime.fromisoformat(data['event_date']).strftime('%d.%m.%Y')
     time_display = "весь день" if parsed_time == "00:00" else parsed_time
 
-    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    keyboard.row("📋 Мои события")
-
+    # ВОТ ЭТО ИСПРАВЛЯЕМ - возвращаем полную клавиатуру
     bot.send_message(
         message.chat.id,
         f"✅ Событие создано!\n\n"
@@ -245,7 +243,7 @@ def process_time_step(message):
         f"📝 {data.get('description', 'нет описания')}\n"
         f"⏰ {display_date} ({time_display})\n"
         f"🆔 ID: {event_id}",
-        reply_markup=keyboard
+        reply_markup=create_main_keyboard()  # ВОТ ЗДЕСЬ ВОЗВРАЩАЕМ ПОЛНУЮ КЛАВИАТУРУ
     )
 
     if user_id in user_states:
